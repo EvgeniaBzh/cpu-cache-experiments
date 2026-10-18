@@ -122,7 +122,7 @@ static void test_race(const int *tcounts, int ntc, double scale) {
 /* Експеримент 5: false sharing                                     */
 /* ================================================================ */
 typedef struct { volatile long v; } shared_t;                            /* 8 Б: 8 лічильників в одному рядку */
-typedef struct { _Alignas(64) volatile long v; char pad[56]; } padded_t; /* 64 Б: 1 лічильник = 1 рядок кешу */
+typedef struct { _Alignas(128) volatile long v; char pad[120]; } padded_t; /* 64 Б: 1 лічильник = 1 рядок кешу */
 
 static shared_t fs_shared[64];
 static padded_t fs_padded[64];
@@ -174,20 +174,23 @@ static void test_false_sharing(const int *tcounts, int ntc, double scale) {
     if (iters < 1000) iters = 1000;
     printf("\n=== Експеримент 5: false sharing (кожен потік інкрементує СВІЙ лічильник %ld разів) ===\n", iters);
     printf("sizeof(shared_t)=%zu, sizeof(padded_t)=%zu\n", sizeof(shared_t), sizeof(padded_t));
-    pname("Варіант", 38); printf(" %7s %10s %12s\n", "Потоків", "Час, мс", "Відносно");
+    pname("Варіант", 38); printf(" %7s %10s %12s\n", "Потоків", "Час, мс", "Прискорення");
+
+    run5(F_LOCAL, 1, iters / 10 + 1);   /* розігрів: CPU виходить зі стану low-power */
+
     for (int k = 0; k < ntc; k++) {
         int T = tcounts[k];
-        double base = 0;
+        double adj = 0;                 /* час варіанта "сусідні лічильники" */
         for (int m = 0; m < 3; m++) {
             double best = 1e9;
             for (int rep = 0; rep < 3; rep++) {
                 double t = run5(m, T, iters);
                 if (t < best) best = t;
             }
-            if (m == F_PADDED) base = best;
+            if (m == F_ADJACENT) adj = best;
             pname(fs_names[m], 38); printf(" %7d %10.1f", T, best * 1e3);
-            if (m == F_ADJACENT) printf(" %11s\n", "(базовий)");
-            else printf(" %10.2fx\n", best / (base > 0 ? base : best));
+            if (m == F_ADJACENT) printf(" %12s\n", "(базовий)");
+            else printf(" %11.2fx\n", adj / best);
         }
     }
 }
