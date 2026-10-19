@@ -4,10 +4,18 @@
  *   Експеримент 4 - race condition: звичайний int / volatile / atomic / mutex
  *   Експеримент 5 - false sharing: лічильники в одному рядку кешу vs з padding
  *
+ * УВАГА: варіанти "звичайний int" і "volatile int" навмисно містять гонку даних.
+ * За стандартом C11 (п. 5.1.2.4) це невизначена поведінка. Кількість втрачених
+ * інкрементів - спостереження для конкретних компілятора та процесора, а не
+ * гарантована властивість. volatile не робить операцію атомарною.
+ *
  * Збірка:  gcc -O2 -std=c11 -pthread threads.c -o threads
  * Запуск:  ./threads [1|2|all] [масштаб]     (масштаб: 1 за замовчуванням, 0.1 = швидший прогін)
  */
 #define _POSIX_C_SOURCE 200809L
+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+#define _DARWIN_C_SOURCE   /* macOS: інакше unistd.h ховає _SC_NPROCESSORS_ONLN */
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,11 +23,6 @@
 #include <stdatomic.h>
 #include <unistd.h>
 #include <time.h>
-
-#ifdef __APPLE__
-#include <sys/types.h>
-#include <sys/sysctl.h>
-#endif
 
 /* вирівнювання колонок з UTF-8 (printf рахує байти, а не символи) */
 static void pname(const char *s, int w) {
@@ -83,7 +86,7 @@ static void *worker4(void *p) {
 static double run4(int mode, int T, long iters, long *result) {
     plain_cnt = 0; vol_cnt = 0; atomic_store(&atom_cnt, 0); mtx_cnt = 0;
     pthread_t th[64];
-    warg_t arg = { mode, iters };
+    warg_t arg = { mode, iters };   /* *result - з ОСТАННЬОГО повтору, час у test_race - мінімум з 3 */
     double t0 = now_s();
     for (int i = 0; i < T; i++) pthread_create(&th[i], NULL, worker4, &arg);
     for (int i = 0; i < T; i++) pthread_join(th[i], NULL);
@@ -121,15 +124,16 @@ static void test_race(const int *tcounts, int ntc, double scale) {
 /* ================================================================ */
 /* Експеримент 5: false sharing                                     */
 /* ================================================================ */
-typedef struct { volatile long v; } shared_t;                            /* 8 Б: 8 лічильників в одному рядку */
-typedef struct { _Alignas(128) volatile long v; char pad[120]; } padded_t; /* 64 Б: 1 лічильник = 1 рядок кешу */
+typedef struct { volatile long v; } shared_t;                            /* 8 Б: 8 лічильників у рядку 64 Б, 16 - у рядку 128 Б */
+#define CACHE_LINE 128   /* sysctl hw.cachelinesize на Apple Silicon; на x86 зазвичай 64 */
+typedef struct { _Alignas(CACHE_LINE) volatile long v; char pad[CACHE_LINE - sizeof(long)]; } padded_t; /* 1 лічильник = 1 рядок кешу */
 
 static shared_t fs_shared[64];
 static padded_t fs_padded[64];
 enum { F_ADJACENT, F_PADDED, F_LOCAL };
 static const char *fs_names[] = {
     "сусідні лічильники (false sharing)",
-    "з padding 64 Б (окремі рядки кешу)",
+    "з padding 128 Б (окремі рядки кешу)",
     "локальна змінна, запис наприкінці"
 };
 
@@ -200,44 +204,14 @@ int main(int argc, char **argv) {
     double scale = argc > 2 ? atof(argv[2]) : 1.0;
     int all = strcmp(which, "all") == 0;
 
-    long ncpu;
-
-#ifdef __APPLE__
-    int cpu_count;
-    size_t size = sizeof(cpu_count);
-
-    if (sysctlbyname("hw.logicalcpu", &cpu_count, &size, NULL, 0) == 0) {
-        ncpu = cpu_count;
-    } else {
-        ncpu = 1;
-    }
-#else
-    ncpu = sysconf(_SC_NPROCESSORS_ONLN);
-    if (ncpu < 1) ncpu = 1;
-#endif
-
+    long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
     printf("Логічних ядер: %ld\n", ncpu);
-
     int tcounts[8], ntc = 0;
-    for (int t = 1; t <= ncpu && t <= 16 && ntc < 7; t *= 2) {
-        tcounts[ntc++] = t;
-    }
+    for (int t = 1; t <= ncpu && t <= 16 && ntc < 7; t *= 2) tcounts[ntc++] = t;
+    if (ncpu > 1 && ncpu <= 16 && tcounts[ntc - 1] != ncpu) tcounts[ntc++] = (int)ncpu;
+    if (ntc == 1) tcounts[ntc++] = 2;   /* навіть на 1 ядрі покажемо 2 потоки */
 
-    if (ncpu > 1 && ncpu <= 16 && tcounts[ntc - 1] != ncpu) {
-        tcounts[ntc++] = (int)ncpu;
-    }
-
-    if (ntc == 1) {
-        tcounts[ntc++] = 2;  /* навіть на 1 ядрі покажемо 2 потоки */
-    }
-
-    if (all || !strcmp(which, "1")) {
-        test_race(tcounts, ntc, scale);
-    }
-
-    if (all || !strcmp(which, "2")) {
-        test_false_sharing(tcounts, ntc, scale);
-    }
-
+    if (all || !strcmp(which, "1")) test_race(tcounts, ntc, scale);
+    if (all || !strcmp(which, "2")) test_false_sharing(tcounts, ntc, scale);
     return 0;
 }

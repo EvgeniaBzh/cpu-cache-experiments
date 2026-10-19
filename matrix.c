@@ -58,6 +58,7 @@ static void mm_ikj(const double *A, const double *B, double *C, int n) {
 /* i-j-k з попереднім транспонуванням B (час транспонування входить у вимір) */
 static void mm_ijk_T(const double *A, const double *B, double *C, int n) {
     double *Bt = malloc((size_t)n * n * sizeof(double));
+    if (!Bt) { fprintf(stderr, "malloc failed\n"); exit(1); }
     for (int i = 0; i < n; i++)
         for (int j = 0; j < n; j++) Bt[j * n + i] = B[i * n + j];
     for (int i = 0; i < n; i++)
@@ -96,6 +97,7 @@ typedef struct { const char *name; int bs; void (*f)(const double *, const doubl
 
 int main(int argc, char **argv) {
     int n = argc > 1 ? atoi(argv[1]) : 512;
+    if (n <= 0) { fprintf(stderr, "N must be positive\n"); return 1; }
     size_t sz = (size_t)n * n;
     double *A = malloc(sz * sizeof(double));
     double *B = malloc(sz * sizeof(double));
@@ -123,7 +125,7 @@ int main(int argc, char **argv) {
     double sums[16];
     for (int v = 0; v < cnt; v++) {
         double best = 1e9;
-        for (int rep = 0; rep < 2; rep++) {
+        for (int rep = 0; rep < 3; rep++) {   /* мінімум з 3 повторів */
             double t0 = now_s();
             if (vs[v].f) vs[v].f(A, B, C, n); else mm_blocked(A, B, C, n, vs[v].bs);
             double t1 = now_s();

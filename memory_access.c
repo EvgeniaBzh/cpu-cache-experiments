@@ -107,10 +107,15 @@ static void test_seq_vs_rand(size_t mb) {
 
 /* ---------------------------------------------------------------- */
 /* Експеримент 2: розмір робочого набору, pointer chasing           */
-/* Кожен вузол = рівно 1 рядок кешу (64 Б), наступний вузол         */
-/* вибирається випадково -> prefetcher безсилий.                    */
+/* Кожен вузол = 128 Б (розмір рядка кешу на Apple Silicon:         */
+/* sysctl hw.cachelinesize = 128), вузли вирівняні за 128 Б, тому   */
+/* один вузол = один рядок кешу. Наступний вузол вибирається        */
+/* випадково -> prefetcher безсилий.                                */
+/* На процесорах з рядком 64 Б можна змінити CACHE_LINE на 64.      */
 /* ---------------------------------------------------------------- */
-typedef struct { size_t next; char pad[64 - sizeof(size_t)]; } node_t;
+#define CACHE_LINE 128
+typedef struct { size_t next; char pad[CACHE_LINE - sizeof(size_t)]; } node_t;
+_Static_assert(sizeof(node_t) == CACHE_LINE, "node_t must be exactly one cache line");
 
 static void test_working_set(void) {
     const size_t steps = 1u << 24;                /* 16.7 млн доступів на кожен розмір */
@@ -119,7 +124,7 @@ static void test_working_set(void) {
 
     for (size_t bytes = 4096; bytes <= (256u << 20); bytes *= 2) {
         size_t n = bytes / sizeof(node_t);
-        node_t *nodes = aligned_alloc(64, n * sizeof(node_t));
+        node_t *nodes = aligned_alloc(CACHE_LINE, n * sizeof(node_t));
         if (!nodes) { fprintf(stderr, "alloc failed\n"); exit(1); }
         for (size_t i = 0; i < n; i++) { nodes[i].next = i; memset(nodes[i].pad, 0, sizeof nodes[i].pad); }
         /* алгоритм Саттоло: перестановка з одним єдиним циклом */
@@ -174,7 +179,9 @@ static void test_stride(void) {
 
 int main(int argc, char **argv) {
     const char *which = argc > 1 ? argv[1] : "all";
-    size_t mb = argc > 2 ? (size_t)atol(argv[2]) : 128;
+    long mb_arg = argc > 2 ? atol(argv[2]) : 128;
+    if (mb_arg <= 0) { fprintf(stderr, "Розмір масиву (МБ) має бути додатним\n"); return 1; }
+    size_t mb = (size_t)mb_arg;
     int all = strcmp(which, "all") == 0;
     if (all || !strcmp(which, "1")) test_seq_vs_rand(mb);
     if (all || !strcmp(which, "2")) test_working_set();
