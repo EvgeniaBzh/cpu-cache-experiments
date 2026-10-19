@@ -156,7 +156,7 @@ static double run5(int mode, int T, long iters) {
 static void test_false_sharing(const int *tcounts, int ntc, double scale) {
     long iters = (long)(50000000 * scale);
     if (iters < 1000) iters = 1000;
-    printf("\n=== Експеримент 5: false sharing (кожен потік інкрементує СВІЙ лічильник %ld разів) ===\n", iters);
+    printf("\nЕксперимент 5: false sharing (кожен потік інкрементує СВІЙ лічильник %ld разів)\n", iters);
     printf("sizeof(shared_t)=%zu, sizeof(padded_t)=%zu\n", sizeof(shared_t), sizeof(padded_t));
     pname("Варіант", 38); printf(" %7s %10s %12s\n", "Потоків", "Час, мс", "Прискорення");
 

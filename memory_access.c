@@ -17,7 +17,6 @@ static double now_s(void) {
     return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
 }
 
-// швидкий генератор xorshift64
 static uint64_t rng_state = 88172645463325252ULL;
 static uint64_t rnd(void) {
     rng_state ^= rng_state << 13;
@@ -99,8 +98,18 @@ static void test_seq_vs_rand(size_t mb) {
 typedef struct { size_t next; char pad[CACHE_LINE - sizeof(size_t)]; } node_t;
 _Static_assert(sizeof(node_t) == CACHE_LINE, "node_t must be exactly one cache line");
 
+// розігрів: виводить CPU зі стану low-power, щоб перші виміри не були завищені
+static void warmup_cpu(double seconds) {
+    double end = now_s() + seconds;
+    unsigned long long x = 1;
+    while (now_s() < end)
+        for (int i = 0; i < 100000; i++) x = x * 6364136223846793005ULL + 1442695040888963407ULL;
+    sink = (long long)x;
+}
+
 static void test_working_set(void) {
     const size_t steps = 1u << 24; // 16.7 млн доступів на кожен розмір
+    warmup_cpu(0.5);
     printf("\nЕксперимент 2: затримка доступу залежно від розміру робочого набору\n");
     printf("%12s %14s\n", "Розмір", "нс/доступ");
 
@@ -118,20 +127,24 @@ static void test_working_set(void) {
         size_t warm = n < steps ? n : steps; // прогрів кешу
         for (size_t s = 0; s < warm; s++) p = nodes[p].next;
 
-        double t0 = now_s();
-        for (size_t s = 0; s < steps; s++) p = nodes[p].next; // залежний ланцюг
-        double t1 = now_s();
+        double best = 1e9; // мінімум з 3 повторів, як в інших експериментах
+        for (int rep = 0; rep < 3; rep++) {
+            double t0 = now_s();
+            for (size_t s = 0; s < steps; s++) p = nodes[p].next; // залежний ланцюг
+            double t1 = now_s();
+            if (t1 - t0 < best) best = t1 - t0;
+        }
         sink = (long long)p;
 
-        double ns = (t1 - t0) / (double)steps * 1e9;
+        double ns = best / (double)steps * 1e9;
         if (bytes < (1u << 20)) printf("%9zu КБ %14.2f\n", bytes >> 10, ns);
         else                    printf("%9zu МБ %14.2f\n", bytes >> 20, ns);
         free(nodes);
     }
 }
 
-/* крок доступу (stride).
-Обсяг роботи однаковий (N інкрементів), міняється лише порядок.  */
+/* крок доступу (stride)
+Обсяг роботи однаковий (N інкрементів), міняється лише порядок.*/
 static void test_stride(void) {
     const size_t n = 16u << 20; // 16M int = 64 МБ
     int *a = calloc(n, sizeof(int));
@@ -153,7 +166,10 @@ static void test_stride(void) {
         printf("%8zu %10zu %8.1f %12.2f %9.1fx\n", stride, stride * sizeof(int),
                best * 1e3, best / (double)n * 1e9, best / base);
     }
-    sink = a[12345];
+    // контрольна сума всього масиву (поза вимірюваною ділянкою): записи не можна відкинути
+    long long checksum = 0;
+    for (size_t i = 0; i < n; i++) checksum += a[i];
+    sink = checksum;
     free(a);
 }
 
