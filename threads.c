@@ -1,20 +1,6 @@
-/*
- * Лабораторна: використання кешу
- * Частина 3: спільний доступ до пам'яті
- *   Експеримент 4 - race condition: звичайний int / volatile / atomic / mutex
- *   Експеримент 5 - false sharing: лічильники в одному рядку кешу vs з padding
- *
- * УВАГА: варіанти "звичайний int" і "volatile int" навмисно містять гонку даних.
- * За стандартом C11 (п. 5.1.2.4) це невизначена поведінка. Кількість втрачених
- * інкрементів - спостереження для конкретних компілятора та процесора, а не
- * гарантована властивість. volatile не робить операцію атомарною.
- *
- * Збірка:  gcc -O2 -std=c11 -pthread threads.c -o threads
- * Запуск:  ./threads [1|2|all] [масштаб]     (масштаб: 1 за замовчуванням, 0.1 = швидший прогін)
- */
 #define _POSIX_C_SOURCE 200809L
 #if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
-#define _DARWIN_C_SOURCE   /* macOS: інакше unistd.h ховає _SC_NPROCESSORS_ONLN */
+#define _DARWIN_C_SOURCE
 #endif
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,7 +10,6 @@
 #include <unistd.h>
 #include <time.h>
 
-/* вирівнювання колонок з UTF-8 (printf рахує байти, а не символи) */
 static void pname(const char *s, int w) {
     int c = 0;
     for (const char *p = s; *p; p++) if (((unsigned char)*p & 0xC0) != 0x80) c++;
@@ -37,9 +22,7 @@ static double now_s(void) {
     return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
 }
 
-/* ================================================================ */
-/* Експеримент 4: race condition                                    */
-/* ================================================================ */
+// race condition
 enum { M_PLAIN, M_VOLATILE, M_ATOMIC, M_MUTEX };
 static const char *mode_names[] = {
     "звичайний int (data race)",
@@ -54,8 +37,7 @@ static atomic_int   atom_cnt;
 static int          mtx_cnt;
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 
-/* noinline: інакше компілятор при -O2 покладе лічильник у регістр на весь цикл
-   і прибере гонку, яку ми хочемо продемонструвати */
+// noinline: інакше компілятор при -O2 покладе лічильник у регістр на весь цикл і прибере гонку, яку ми хочемо продемонструвати
 __attribute__((noinline)) static void inc_plain(int *p) { (*p)++; }
 
 typedef struct { int mode; long iters; } warg_t;
@@ -67,7 +49,7 @@ static void *worker4(void *p) {
         for (long i = 0; i < w->iters; i++) inc_plain(&plain_cnt);
         break;
     case M_VOLATILE:
-        for (long i = 0; i < w->iters; i++) vol_cnt++;     /* read-modify-write, НЕ атомарно */
+        for (long i = 0; i < w->iters; i++) vol_cnt++; // read-modify-write,  атомарно
         break;
     case M_ATOMIC:
         for (long i = 0; i < w->iters; i++) atomic_fetch_add(&atom_cnt, 1);
@@ -86,7 +68,7 @@ static void *worker4(void *p) {
 static double run4(int mode, int T, long iters, long *result) {
     plain_cnt = 0; vol_cnt = 0; atomic_store(&atom_cnt, 0); mtx_cnt = 0;
     pthread_t th[64];
-    warg_t arg = { mode, iters };   /* *result - з ОСТАННЬОГО повтору, час у test_race - мінімум з 3 */
+    warg_t arg = { mode, iters }; // result - з останнього повтору, час у test_race - мінімум з 3
     double t0 = now_s();
     for (int i = 0; i < T; i++) pthread_create(&th[i], NULL, worker4, &arg);
     for (int i = 0; i < T; i++) pthread_join(th[i], NULL);
@@ -110,7 +92,7 @@ static void test_race(const int *tcounts, int ntc, double scale) {
             int T = tcounts[k];
             long res;
             double best = 1e9;
-            for (int rep = 0; rep < 3; rep++) {            /* мінімум часу з 3 прогонів */
+            for (int rep = 0; rep < 3; rep++) { // мінімум часу з 3 прогонів
                 double t = run4(m, T, iters, &res);
                 if (t < best) best = t;
             }
@@ -121,12 +103,10 @@ static void test_race(const int *tcounts, int ntc, double scale) {
     }
 }
 
-/* ================================================================ */
-/* Експеримент 5: false sharing                                     */
-/* ================================================================ */
-typedef struct { volatile long v; } shared_t;                            /* 8 Б: 8 лічильників у рядку 64 Б, 16 - у рядку 128 Б */
-#define CACHE_LINE 128   /* sysctl hw.cachelinesize на Apple Silicon; на x86 зазвичай 64 */
-typedef struct { _Alignas(CACHE_LINE) volatile long v; char pad[CACHE_LINE - sizeof(long)]; } padded_t; /* 1 лічильник = 1 рядок кешу */
+// false sharing
+typedef struct { volatile long v; } shared_t; // 8 Б: 8 лічильників у рядку 64 Б, 16 - у рядку 128 Б
+#define CACHE_LINE 128 // sysctl hw.cachelinesize на Apple Silicon; на x86 зазвичай 64
+typedef struct { _Alignas(CACHE_LINE) volatile long v; char pad[CACHE_LINE - sizeof(long)]; } padded_t; // 1 лічильник = 1 рядок кешу
 
 static shared_t fs_shared[64];
 static padded_t fs_padded[64];
@@ -180,11 +160,11 @@ static void test_false_sharing(const int *tcounts, int ntc, double scale) {
     printf("sizeof(shared_t)=%zu, sizeof(padded_t)=%zu\n", sizeof(shared_t), sizeof(padded_t));
     pname("Варіант", 38); printf(" %7s %10s %12s\n", "Потоків", "Час, мс", "Прискорення");
 
-    run5(F_LOCAL, 1, iters / 10 + 1);   /* розігрів: CPU виходить зі стану low-power */
+    run5(F_LOCAL, 1, iters / 10 + 1); // розігрів: CPU виходить зі стану low-power
 
     for (int k = 0; k < ntc; k++) {
         int T = tcounts[k];
-        double adj = 0;                 /* час варіанта "сусідні лічильники" */
+        double adj = 0; // час варіанта сусідні лічильники
         for (int m = 0; m < 3; m++) {
             double best = 1e9;
             for (int rep = 0; rep < 3; rep++) {
@@ -209,7 +189,7 @@ int main(int argc, char **argv) {
     int tcounts[8], ntc = 0;
     for (int t = 1; t <= ncpu && t <= 16 && ntc < 7; t *= 2) tcounts[ntc++] = t;
     if (ncpu > 1 && ncpu <= 16 && tcounts[ntc - 1] != ncpu) tcounts[ntc++] = (int)ncpu;
-    if (ntc == 1) tcounts[ntc++] = 2;   /* навіть на 1 ядрі покажемо 2 потоки */
+    if (ntc == 1) tcounts[ntc++] = 2; // навіть на 1 ядрі покажемо 2 потоки
 
     if (all || !strcmp(which, "1")) test_race(tcounts, ntc, scale);
     if (all || !strcmp(which, "2")) test_false_sharing(tcounts, ntc, scale);

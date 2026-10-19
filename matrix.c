@@ -1,10 +1,3 @@
-/*
- * Лабораторна: використання кешу
- * Частина 2: множення матриць - вплив порядку циклів і блочності (tiling)
- *
- * Збірка:  gcc -O2 -std=c11 matrix.c -o matrix -lm
- * Запуск:  ./matrix [N]        (за замовчуванням N = 512; спробуйте 1024)
- */
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,7 +5,7 @@
 #include <math.h>
 #include <time.h>
 
-/* вирівнювання колонок з UTF-8 (printf рахує байти, а не символи) */
+// вирівнювання колонок з UTF-8 (printf рахує байти, а не символи)
 static void pname(const char *s, int w) {
     int c = 0;
     for (const char *p = s; *p; p++) if (((unsigned char)*p & 0xC0) != 0x80) c++;
@@ -25,7 +18,7 @@ static double now_s(void) {
     return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
 }
 
-/* i-j-k: B читається по стовпчику (крок N*8 байт) -> багато промахів */
+// i-j-k: B читається по стовпчику (крок N*8 байт) -> багато промахів
 static void mm_ijk(const double *A, const double *B, double *C, int n) {
     for (int i = 0; i < n; i++)
         for (int j = 0; j < n; j++) {
@@ -35,7 +28,7 @@ static void mm_ijk(const double *A, const double *B, double *C, int n) {
         }
 }
 
-/* j-k-i: найгірший порядок, A і C читаються по стовпчиках */
+// j-k-i: найгірший порядок, A і C читаються по стовпчиках
 static void mm_jki(const double *A, const double *B, double *C, int n) {
     memset(C, 0, (size_t)n * n * sizeof(double));
     for (int j = 0; j < n; j++)
@@ -45,7 +38,7 @@ static void mm_jki(const double *A, const double *B, double *C, int n) {
         }
 }
 
-/* i-k-j: усі три матриці читаються по рядках (послідовно) */
+// i-k-j: усі три матриці читаються по рядках (послідовно)
 static void mm_ikj(const double *A, const double *B, double *C, int n) {
     memset(C, 0, (size_t)n * n * sizeof(double));
     for (int i = 0; i < n; i++)
@@ -55,7 +48,7 @@ static void mm_ikj(const double *A, const double *B, double *C, int n) {
         }
 }
 
-/* i-j-k з попереднім транспонуванням B (час транспонування входить у вимір) */
+// i-j-k з попереднім транспонуванням B (час транспонування входить у вимір)
 static void mm_ijk_T(const double *A, const double *B, double *C, int n) {
     double *Bt = malloc((size_t)n * n * sizeof(double));
     if (!Bt) { fprintf(stderr, "malloc failed\n"); exit(1); }
@@ -70,7 +63,7 @@ static void mm_ijk_T(const double *A, const double *B, double *C, int n) {
     free(Bt);
 }
 
-/* блочне множення (tiling): блок BS x BS трьох матриць вміщується в кеш */
+// блочне множення (tiling): блок BS x BS трьох матриць вміщується в кеш
 static void mm_blocked(const double *A, const double *B, double *C, int n, int BS) {
     memset(C, 0, (size_t)n * n * sizeof(double));
     for (int ii = 0; ii < n; ii += BS)
@@ -118,14 +111,14 @@ int main(int argc, char **argv) {
     };
     int cnt = (int)(sizeof vs / sizeof vs[0]);
 
-    printf("=== Множення матриць %d x %d (double, %.1f МБ на матрицю) ===\n", n, n, sz * 8.0 / (1 << 20));
+    printf("Множення матриць %d x %d (double, %.1f МБ на матрицю)\n", n, n, sz * 8.0 / (1 << 20));
     pname("Варіант", 28); printf(" %10s %10s %14s %s\n", "Час, с", "GFLOPS", "Відносно ikj", "Перевірка");
 
     double ref = 0, t_ikj = 0, times[16];
     double sums[16];
     for (int v = 0; v < cnt; v++) {
         double best = 1e9;
-        for (int rep = 0; rep < 3; rep++) {   /* мінімум з 3 повторів */
+        for (int rep = 0; rep < 3; rep++) { // мінімум з 3 повторів
             double t0 = now_s();
             if (vs[v].f) vs[v].f(A, B, C, n); else mm_blocked(A, B, C, n, vs[v].bs);
             double t1 = now_s();
