@@ -1,3 +1,7 @@
 memory_access
 matrix
 threads
+false_sharing
+results/
+*.png
+.DS_Store
