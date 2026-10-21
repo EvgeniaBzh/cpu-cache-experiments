@@ -49,7 +49,7 @@ static void *worker4(void *p) {
         for (long i = 0; i < w->iters; i++) inc_plain(&plain_cnt);
         break;
     case M_VOLATILE:
-        for (long i = 0; i < w->iters; i++) vol_cnt++; // read-modify-write,  атомарно
+        for (long i = 0; i < w->iters; i++) vol_cnt++;
         break;
     case M_ATOMIC:
         for (long i = 0; i < w->iters; i++) atomic_fetch_add(&atom_cnt, 1);
@@ -68,7 +68,7 @@ static void *worker4(void *p) {
 static double run4(int mode, int T, long iters, long *result) {
     plain_cnt = 0; vol_cnt = 0; atomic_store(&atom_cnt, 0); mtx_cnt = 0;
     pthread_t th[64];
-    warg_t arg = { mode, iters }; // result - з останнього повтору, час у test_race - мінімум з 3
+    warg_t arg = { mode, iters };
     double t0 = now_s();
     for (int i = 0; i < T; i++) pthread_create(&th[i], NULL, worker4, &arg);
     for (int i = 0; i < T; i++) pthread_join(th[i], NULL);
@@ -91,14 +91,21 @@ static void test_race(const int *tcounts, int ntc, double scale) {
         for (int k = 0; k < ntc; k++) {
             int T = tcounts[k];
             long res;
+            long best_res = 0;
             double best = 1e9;
-            for (int rep = 0; rep < 3; rep++) { // мінімум часу з 3 прогонів
+
+            for (int rep = 0; rep < 3; rep++) {
                 double t = run4(m, T, iters, &res);
-                if (t < best) best = t;
-            }
+                if (t < best) {
+                    best = t;
+                    best_res = res;
+                }
+}
             long expected = (long)T * iters;
-            pname(mode_names[m], 30); printf(" %7d %10.1f %14ld %14ld %8.1f%%\n", T, best * 1e3,
-                   res, expected, 100.0 * (double)(expected - res) / (double)expected);
+            pname(mode_names[m], 30);
+                    printf(" %7d %10.1f %14ld %14ld %8.1f%%\n",
+                        T, best * 1e3, best_res, expected,
+                        100.0 * (double)(expected - best_res) / (double)expected);
         }
     }
 }

@@ -23,6 +23,5 @@ for i in $(seq 1 $RUNS); do
   echo "Запуск $i з $RUNS: matrix 512";     ./matrix 512            | tee results/matrix512_$i.txt
   echo "Запуск $i з $RUNS: matrix 1024";    ./matrix 1024           | tee results/matrix1024_$i.txt
   echo "Запуск $i з $RUNS: threads";        ./threads all           | tee results/threads_$i.txt
-  echo "Запуск $i з $RUNS: padding 64 Б";   ./threads_pad64 2       | tee results/threads_pad64_$i.txt
-  echo "Запуск $i з $RUNS: padding 256 Б";  ./threads_pad256 2      | tee results/threads_pad256_$i.txt
+  echo "Запуск $i з $RUNS: false sharing"; ./threads 2 | tee "results/false_sharing_$i.txt"
 done
